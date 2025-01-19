@@ -1,0 +1,97 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+# Author: Pär Andersson (National Supercomputer Centre, Sweden)
+# Version: 0.3 2007-07-30
+#
+# 2011-06-23: Joerg Bornschein <bornschein@fias.uni-frankfurt.de>
+#   Make this script find its own path
+#
+# This will submit a batch script that starts screen on a node.
+# Then ssh is used to connect to the node and attach the screen.
+# The result is very similar to an interactive shell in PBS
+# (qsub -I)
+
+script_dir="$(dirname "$(readlink -f ${BASH_SOURCE[0]})")"
+
+usage="
+Usage: $0 <sbatch options>
+
+The command submits a sbatch job to slurm to start a GNU screen session on a
+compute node. It will wait until the job starts and then SSH to the compute
+node attached to the screen session that was started. This creates a detachable
+interactive shell session as well as allowing X forwarding to work.
+
+Any valid sbatch options may be specified as necessary.
+
+One non-slurm option --port '<port number>' to setup port forwarding.
+"
+
+OPTIONS=()  # the buffer array for the parameters
+
+COMMAND=""
+
+while [[ $1 ]]
+do
+    case "$1" in
+      -h | --help)
+          echo "$usage"
+          exit
+          ;;
+      --port)
+          PORT="$2"
+          shift 2
+          ;;
+      *)
+          OPTIONS+=("$1")
+          shift
+          ;;
+    esac
+done
+
+# Batch Script that starts SCREEN
+BS=$script_dir/_interactive
+# Interactive screen script
+IS=$script_dir/_interactive_screen
+
+# Submit the job and get the job id
+JOB=`sbatch --output=/dev/null --error=/dev/null ${OPTIONS[@]} $BS 2>&1 \
+    | egrep -o -e "\b[0-9]+$"`
+
+# Make sure the job is always canceled
+trap "{ scancel -Q $JOB; exit; }" SIGINT SIGTERM EXIT
+
+echo "Waiting for JOBID $JOB to start"
+while true;do
+    sleep 2s
+
+    # Check job status
+    STATUS=`squeue -j $JOB -t PD,R -h -o %t`
+
+    if [ "$STATUS" = "R" ];then
+        # Job is running, break the while loop
+        break
+    elif [ "$STATUS" != "PD" ];then
+        echo "Job is not Running or Pending. Aborting"
+        scancel $JOBexit 1
+    fi
+
+    echo -n "."
+
+done
+
+# Determine the first node in the job:
+NODE=`srun --jobid=$JOB -N1 hostname`
+
+# SSH to the node and attach the screen
+sleep 1s
+if [ -v PORT ]; then
+    echo -e "Using custom port $PORT"
+    ssh -L $PORT:localhost:$PORT -X -t $NODE $IS slurm$JOB
+elif [ -v ANVIO_PORT ]; then # if ANVIO_PORT available, then use it
+    echo 'Using $ANVIO_PORT'
+    ssh -L $ANVIO_PORT:localhost:$ANVIO_PORT -X -t $NODE $IS slurm$JOB
+else
+    echo 'No port specified, alles gut'
+    ssh -X -t $NODE $IS slurm$JOB
+fi
+# The trap will now cancel the job before exiting.
