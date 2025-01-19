@@ -7,4 +7,4 @@ interactive shell session as well as allowing X forwarding to work.
 
 You can specify any valid sbatch options as necessary.
 
-There is one non-slurm option: --port '<port number>', for propoer port forwarding. By default, `sinteractive` will use the port specified by the variable $ANVIO_PORT.`
+There is one non-slurm option: `--port '<port number>'`, for propoer port forwarding. By default, `sinteractive` will use the port specified by the variable `$ANVIO_PORT`.
